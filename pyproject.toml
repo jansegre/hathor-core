@@ -1,0 +1,77 @@
+# Copyright 2019 Hathor Labs
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[tool.poetry]
+name = "hathor"
+version = "0.31.0"
+description = "Hathor Network full-node"
+authors = ["Hathor Team <contact@hathor.network>"]
+license = "Apache-2.0"
+readme = "README.md"
+homepage = "https://hathor.network/"
+repository = "https://github.com/HathorNetwork/hathor-core/"
+# https://pypi.org/classifiers/
+classifiers = [
+    "Programming Language :: Python :: 3.6",
+    "Operating System :: OS Independent",
+    "License :: OSI Approved :: Apache Software License",
+    "Private :: Do Not Upload",
+]
+exclude = ["tests", "tests.*"]
+
+[tool.poetry.scripts]
+hathor-cli = 'hathor.cli.main:main'
+
+[tool.poetry.dev-dependencies]
+grpcio-tools = "*"
+numpy = "*"
+flake8 = "*"
+isort = "*"
+yapf = "*"
+mypy = "*"
+pytest = "*"
+pytest-cov = "*"
+mypy-protobuf = "*"
+
+[tool.poetry.dependencies]
+python = "~3.6"
+twisted = "*"
+autobahn = "*"
+base58 = "*"
+colorama = "*"
+configargparse = "*"
+cryptography = "*"
+graphviz = "*"
+grpcio = "*"
+ipython = "*"
+mnemonic = "*"
+prometheus_client = "*"
+protobuf = "*"
+pyopenssl = "*"
+pycoin = "*"
+pywin32 = {version = "*", markers = "sys_platform == 'win32'"}
+requests = "*"
+service-identity = "*"
+pexpect = "*"
+intervaltree = "*"
+structlog = "*"
+python-rocksdb = {version = "^0.7.0", optional = true}
+aiohttp = "*"
+
+[tool.poetry.extras]
+rocksdb = ["python-rocksdb"]
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
