@@ -1,0 +1,23 @@
+name: Tests
+on: [push, pull_request]
+jobs:
+  Linting:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python 3.6
+      uses: actions/setup-python@v1
+      with:
+        python-version: 3.6
+    - name: Prepare
+      run: |
+        pip install poetry
+        poetry install -n
+        poetry run make protos
+    - name: Check
+      run: poetry run make check
+  # Code coverage:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #   - uses: codecov/codecov-action@v1.0.7
+  #   - name: Codecov
