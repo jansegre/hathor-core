@@ -1,4 +1,4 @@
-py_sources = hathor/ tests/ tools/ $(wildcard *.py)
+py_sources = hathor/ tests/
 
 .PHONY: all
 all: check tests
@@ -56,16 +56,16 @@ tests-full:
 # checking:
 
 .PHONY: mypy
-mypy: ./hathor
-	mypy $(mypy_flags) $^
+mypy:
+	mypy $(mypy_flags) ./hathor ./tests
 
 .PHONY: flake8
-flake8: $(py_sources)
-	flake8 $^
+flake8:
+	flake8 $(py_sources)
 
 .PHONY: isort-check
-isort-check: $(py_sources)
-	isort -ac -rc --check-only $^
+isort-check:
+	isort --ac --check-only $(py_sources)
 
 .PHONY: check
 check: flake8 isort-check mypy
@@ -76,12 +76,12 @@ check: flake8 isort-check mypy
 fmt: yapf isort
 
 .PHONY: yapf
-yapf: $(py_sources)
-	yapf -rip $^ -e \*_pb2.py,\*_pb2_grpc.py
+yapf:
+	yapf -rip $(py_sources) -e \*_pb2.py,\*_pb2_grpc.py
 
 .PHONY: isort
-isort: $(py_sources)
-	isort -ac -rc $^
+isort:
+	isort --ac $(py_sources)
 
 # generation:
 
@@ -107,8 +107,12 @@ clean-pyc:
 	find hathor tests -name \*.pyc -delete
 	find hathor tests -name __pycache__ -delete
 
+.PHONY: clean-caches
+clean-caches:
+	rm -rf .coverage .mypy_cache .pytest_cache coverage.xml coverage_html_report
+
 .PHONY: clean
-clean: clean-pyc clean-protos
+clean: clean-pyc clean-protos clean-caches
 
 # docker:
 

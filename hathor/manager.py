@@ -38,7 +38,6 @@ from hathor.p2p.peer_discovery import PeerDiscovery
 from hathor.p2p.peer_id import PeerId
 from hathor.p2p.protocol import HathorProtocol
 from hathor.pubsub import HathorEvents, PubSubManager
-from hathor.stratum import StratumFactory
 from hathor.transaction import BaseTransaction, Block, MergeMinedBlock, Transaction, TxVersion, sum_weights
 from hathor.transaction.exceptions import TxValidationError
 from hathor.transaction.storage import TransactionStorage
@@ -103,10 +102,10 @@ class HathorManager:
         :param min_block_weight: Minimum weight for blocks.
         :type min_block_weight: Optional[int]
         """
-        from hathor.p2p.factory import HathorServerFactory, HathorClientFactory
+        from hathor.metrics import Metrics
+        from hathor.p2p.factory import HathorClientFactory, HathorServerFactory
         from hathor.p2p.manager import ConnectionsManager
         from hathor.transaction.storage.memory_storage import TransactionMemoryStorage
-        from hathor.metrics import Metrics
 
         self.log = logger.new()
 
@@ -162,7 +161,12 @@ class HathorManager:
         # When manager is in test mode we reduce the weight of blocks/transactions.
         self.test_mode: int = 0
 
-        self.stratum_factory = StratumFactory(manager=self, port=stratum_port) if stratum_port else None
+        if stratum_port:
+            # XXX: only import if needed
+            from hathor.stratum import StratumFactory
+            self.stratum_factory: Optional[StratumFactory] = StratumFactory(manager=self, port=stratum_port)
+        else:
+            self.stratum_factory = None
         # Set stratum factory for metrics object
         self.metrics.stratum_factory = self.stratum_factory
 
@@ -746,8 +750,8 @@ class HathorManager:
         logsum_weights = 0.0
 
         prefix_sum_solvetimes = [0]
-        for x in solvetimes:
-            prefix_sum_solvetimes.append(prefix_sum_solvetimes[-1] + x)
+        for st in solvetimes:
+            prefix_sum_solvetimes.append(prefix_sum_solvetimes[-1] + st)
 
         # Loop through N most recent blocks. N is most recently solved block.
         for i in range(K, N):
