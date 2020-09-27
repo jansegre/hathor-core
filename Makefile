@@ -88,10 +88,19 @@ isort:
 proto_dir = ./hathor/protos
 proto_srcs = $(wildcard $(proto_dir)/*.proto)
 proto_outputs = $(patsubst %.proto,%_pb2.py,$(proto_srcs)) $(patsubst %.proto,%_pb2_grpc.py,$(proto_srcs)) $(patsubst %.proto,%_pb2.pyi,$(proto_srcs))
+GRPC_TOOLS_VERSION = "$(shell python -m grpc_tools.protoc --version 2>/dev/null || true)"
+#ifdef GRPC_TOOLS_VERSION
+ifneq ($(GRPC_TOOLS_VERSION),"")
+	protoc := python -m grpc_tools.protoc
+else
+	protoc := protoc
+endif
 
-# all proto_srcs are added as deps so we a change on any of them triggers all to be rebuilt
-%_pb2.pyi %_pb2.py %_pb2_grpc.py: %.proto $(proto_srcs)
-	python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. --mypy_out=. $<
+# all proto_srcs are added as deps so when a change on any of them triggers all to be rebuilt
+%_pb2.pyi %_pb2.py: %.proto $(proto_srcs)
+	$(protoc) -I. --python_out=. --mypy_out=. $<
+%_pb2_grpc.py: %.proto $(proto_srcs)
+	$(protoc) -I. --grpc_python_out=. $< || true
 
 .PHONY: protos
 protos: $(proto_outputs)
@@ -118,25 +127,26 @@ clean: clean-pyc clean-protos clean-caches
 
 docker_dir := .
 ifdef GITHUB_REF
-	docker_tag := $(GITHUB_REF)
+	docker_subtag := $(GITHUB_REF)
 else
 ifneq ($(wildcard .git/.*),)
-	docker_tag := $(shell git describe --tags --dirty)
+	docker_subtag := $(shell git describe --tags --dirty)
 else
-	docker_tag := $(shell date +'%y%m%d%H%M%S')
+	docker_subtag := $(shell date +'%y%m%d%H%M%S')
 endif
 endif
+docker_tag := hathor-core:$(docker_subtag)
 
 .PHONY: docker
 docker: $(docker_dir)/Dockerfile $(proto_outputs)
-	docker build -t fullnode:$(docker_tag) $(docker_dir)
+	docker build -t $(docker_tag) $(docker_dir)
 
 .PHONY: docker-push
 docker-push: docker
-	docker tag fullnode:$(docker_tag) hathornetwork/hathor-core:$(docker_tag)
-	docker push hathornetwork/hathor-core:$(docker_tag)
+	docker tag $(docker_tag) hathornetwork/hathor-core:$(docker_subtag)
+	docker push hathornetwork/hathor-core:$(docker_subtag)
 
 .PHONY: docker-push
 docker-push-aws: docker
-	docker tag fullnode:$(docker_tag) 769498303037.dkr.ecr.us-east-1.amazonaws.com/fullnode:$(docker_tag)
-	docker push 769498303037.dkr.ecr.us-east-1.amazonaws.com/fullnode:$(docker_tag)
+	docker tag $(docker_tag) 769498303037.dkr.ecr.us-east-1.amazonaws.com/fullnode:$(docker_subtag)
+	docker push 769498303037.dkr.ecr.us-east-1.amazonaws.com/fullnode:$(docker_subtag)

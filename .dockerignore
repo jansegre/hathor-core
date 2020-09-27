@@ -3,6 +3,7 @@
 **/__pycache__
 cover/
 coverage*/
+extras/
 data*/
 docs/
 tmp/
