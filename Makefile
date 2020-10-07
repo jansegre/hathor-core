@@ -136,10 +136,19 @@ else
 endif
 endif
 docker_tag := hathor-core:$(docker_subtag)
+docker_build_arg :=
+docker_build_flags :=
+ifneq ($(docker_build_arg),)
+	docker_build_flags +=  --build-arg $(docker_build_arg)
+endif
 
 .PHONY: docker
 docker: $(docker_dir)/Dockerfile $(proto_outputs)
-	docker build -t $(docker_tag) $(docker_dir)
+	docker build$(docker_build_flags) -t $(docker_tag) $(docker_dir)
+
+.PHONY: docker-pypy
+docker-pypy: $(docker_dir)/Dockerfile.pypy $(proto_outputs)
+	docker build$(docker_build_flags) -f Dockerfile.pypy -t $(docker_tag) $(docker_dir)
 
 .PHONY: docker-push
 docker-push: docker

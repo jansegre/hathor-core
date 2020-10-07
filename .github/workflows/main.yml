@@ -12,6 +12,7 @@ on:
     - dev
 jobs:
   test:
+    name: tests python-${{ matrix.python }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40  # default is 360
     strategy:
@@ -75,8 +76,7 @@ jobs:
       uses: actions/cache@v2
       with:
         path: .mypy_cache
-        # this key is setup such that every branch has its cache
-        # TODO: skip cache on tag refs (as not to waste cache storage)
+        # this key is setup such that every branch has its cache and new branches can reuse dev's cache, but not the other way around
         key: ${{ runner.os }}-py${{ matrix.python }}-mypy-${{ github.head_ref || github.ref }}
         restore-keys: |
           ${{ runner.os }}-py${{ matrix.python }}-mypy-dev
