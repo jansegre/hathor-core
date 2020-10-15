@@ -687,6 +687,9 @@ class NodeSyncTimestamp(Plugin):
         else:
             # If we have not requested the data, it is a new transaction being propagated
             # in the network, thus, we propagate it as well.
+            # XXX: hack to prevent attack
+            if tx.is_block and tx.weight < 30:
+                return
             result = self.manager.on_new_tx(tx, conn=self.protocol, propagate_to_peers=True)
             self.update_received_stats(tx, result)
 

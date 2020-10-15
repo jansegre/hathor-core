@@ -18,7 +18,7 @@ RUN python -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 RUN pip --no-input --no-cache-dir install --upgrade "pip<21" wheel
 COPY requirements.txt ./requirements.txt
-RUN pip --no-input --no-cache-dir install --compile --require-hashes -r requirements.txt
+RUN pip --no-input --no-cache-dir install --compile -r requirements.txt
 COPY dist ./dist
 RUN pip --no-input --no-cache-dir install --compile --no-deps dist/hathor-*.whl
 
