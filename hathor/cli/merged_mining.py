@@ -6,6 +6,7 @@ from aiohttp import web
 from structlog import get_logger
 
 logger = get_logger()
+LOGGING_WITH_TWISTED = False
 
 
 def create_parser() -> ArgumentParser:
@@ -35,7 +36,11 @@ def execute(args: Namespace) -> None:
     from hathor.merged_mining.digibyte_rpc import DigibyteRPC
     from hathor.merged_mining.status_api import make_app as make_status_app
 
+    def exception_handler(loop, context):
+        logger.exception('unhandled exception', **context)
+
     loop = asyncio.get_event_loop()
+    loop.set_exception_handler(exception_handler)
 
     kwargs: Dict[str, Any] = {}
     has_parent_address = False

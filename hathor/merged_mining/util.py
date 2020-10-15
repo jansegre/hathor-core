@@ -92,3 +92,17 @@ def ensure_deferred(f):
         result = f(*args, **kwargs)
         return ensureDeferred(result)
     return wrapper
+
+
+def create_logged_task(logger: Any, task: Awaitable[Any], *,
+                       loop: Optional[asyncio.AbstractEventLoop] = None) -> asyncio.Task:
+    loop = loop or asyncio.get_event_loop()
+    # TODO: docstring, also better type for logger
+    async def _wrapper(awaitable):
+        try:
+            return await awaitable
+        # this is not bare because we allow "exceptions" like StopIteration to pass through
+        except Exception:
+            logger.exception("Unhandled exception")
+            raise
+    return loop.create_task(_wrapper(task))

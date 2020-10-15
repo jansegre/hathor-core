@@ -49,7 +49,7 @@ from hathor.merged_mining.bitcoin import (
 )
 from hathor.merged_mining.bitcoin_rpc import IBitcoinRPC
 from hathor.merged_mining.digibyte_rpc import IDigibyteRPC
-from hathor.merged_mining.util import Periodic
+from hathor.merged_mining.util import Periodic, create_logged_task
 from hathor.transaction import BitcoinAuxPow, MergeMinedBlock as HathorBlock
 from hathor.transaction.exceptions import ScriptError, TxValidationError
 from hathor.util import MaxSizeOrderedDict, ichunks
@@ -177,7 +177,7 @@ async def discover_addresses_and_worker_from(login: str,
 
     parts = login.split('.')
     if len(parts) < 2:
-        raise ValueError('Expected `{HTR_ADDR}.{BTC_ADDR}` or `{HTR_ADDR}.{BTC_ADDR}.{WORKER}` got "{}"'.format(login))
+        raise ValueError(f'Expected `<HTR_ADDR>.<BTC_ADDR>` or `<HTR_ADDR>.<BTC_ADDR>.<WORKER>` got `{login}`')
 
     found_hathor_addr: bool = False
     found_parent_addr: bool = False
@@ -379,7 +379,8 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
     MIN_DIFFICULTY = 128  # minimum "bitcoin difficulty" to assign to jobs
     MAX_DIFFICULTY = 2**208  # maximum "bitcoin difficulty" to assign to jobs
     INITIAL_DIFFICULTY = 8192  # initial "bitcoin difficulty" to assign to jobs, can raise or drop based on solvetimes
-    TARGET_JOB_TIME = 15  # in seconds, adjust difficulty so jobs take this long
+    # TARGET_JOB_TIME = 15  # in seconds, adjust difficulty so jobs take this long
+    TARGET_JOB_TIME = 2  # in seconds, adjust difficulty so jobs take this long
     MAX_JOBS = 150  # maximum number of jobs to keep in memory
 
     merged_job: 'MergedJob'
@@ -410,6 +411,7 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
         self._estimator_last_len = 0
         self.hashrate_ths: Optional[float] = None
         self.user_agent = ''
+        self.blocks_found: List[Tuple[str, bytes]] = []
 
         self.xnonce1 = xnonce1
         self.xnonce2_size = self.DEFAULT_XNONCE2_SIZE
@@ -451,6 +453,7 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
             'last_submit_at': self.last_submit_at or None,
             'uptime': self.uptime,
             'diff': self._current_difficulty,
+            'blocks_found': [f'{c}:{h.hex()}' for c, h in self.blocks_found],
         }
 
     def next_job_id(self):
@@ -476,14 +479,14 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
         assert self.miner_id is not None
         self.coordinator.miner_protocols.pop(self.miner_id)
         if self.estimator_task:
-            asyncio.ensure_future(self.estimator_task.stop())
+            create_logged_task(self.log, self.estimator_task.stop())
 
     def start_estimator(self) -> None:
         """ Start periodic estimator task."""
         if self.estimator_task is None:
             self.last_reduced = time.time()
             self.estimator_task = Periodic(self.estimator_loop, self.ESTIMATOR_LOOP_INTERVAL)
-            asyncio.ensure_future(self.estimator_task.start())
+            create_logged_task(self.log, self.estimator_task.start())
 
     def data_received(self, data):
         """ Parse data, buffer/assemble and split lines, pass lines to `line_received`.
@@ -509,7 +512,7 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
             self.log.warn('invalid message received', message=message, message_hex=message.hex(), exc_info=True)
             return self.send_error(PARSE_ERROR, data={'message': message})
         assert isinstance(data, dict)
-        asyncio.ensure_future(self.process_data(data))
+        create_logged_task(self.log, self.process_data(data))
 
     async def process_data(self, data: Dict[Any, Any]) -> None:
         """ Process JSON and forward to the appropriate handle, usually `handle_request`.
@@ -569,7 +572,7 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
         from hathor.util import json_dumpb
         try:
             message = json_dumpb(json)
-            self.log.debug('send line', line=message)
+            # self.log.debug('send line', line=message)
             self.transport.write(message + b'\n')
         except TypeError:
             self.log.error('failed to encode', json=json)
@@ -587,6 +590,7 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
         :type msgid: Optional[str]
         """
         self.log.debug('handle request', method=method, params=params)
+        print('!!!!!!!!')
 
         if method in {'subscribe', 'mining.subscribe', 'login'}:
             assert isinstance(params, List)
@@ -653,8 +657,6 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
         self._authorized = True
         self.log.info('miner authorized')
         self.job_request()
-        if not self.constant_difficulty:
-            self.start_estimator()
 
     def handle_configure(self, params: List, msgid: Optional[str]) -> None:
         """ Handles stratum-extensions configuration
@@ -682,10 +684,10 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
         self._subscribed = True
         self.subscribed_at = time.time()
         self.log.info('miner subscribed', address=self.miner_address, params=params)
-        # session = str(self.miner_id)
-        session = [['mining.set_difficulty', '1'], ['mining.notify', str(self.miner_id)]]
+        session = str(self.miner_id)
+        # session = [['mining.set_difficulty', '1'], ['mining.notify', str(self.miner_id)]]
         self.send_result([session, self.xnonce1.hex(), self.xnonce2_size], msgid)
-        self.user_agent = params[0]
+        self.user_agent = params[0] if params else ''
         if 'nicehash' in self.user_agent.lower():
             self.log.info('special case mindiff for NiceHash')
             self.initial_difficulty = PDiff(NICEHASH_MIN_DIFF)
@@ -724,6 +726,7 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
         """
         from itertools import chain
 
+        self.start_estimator()
         self.log.debug('handle submit', msgid=msgid, params=params)
 
         work = SingleMinerWork.from_stratum_params(self.xnonce1, params)
@@ -762,21 +765,22 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
         now = time.time()
         luck_logwork = block_hash.to_weight()
         diff_logwork = self._current_difficulty.to_weight()
-        logwork = min(luck_logwork, diff_logwork)
+        # logwork = min(luck_logwork, diff_logwork)
+        logwork = Weight((luck_logwork + diff_logwork) / 2)
         self._new_submitted_work.append((now, logwork, block_hash))
 
         # too many jobs too fast, increase difficulty out of caution (more than 10 submits within the last 10s)
-        if not self.constant_difficulty and sum(1 for t, w, _ in self._new_submitted_work if now - t < 10) > 100:
+        if sum(1 for t, w, _ in self._new_submitted_work if now - t < 10) > 100:
             self._submitted_work.extend(self._new_submitted_work)
             self._new_submitted_work = []
             self.set_difficulty(self._current_difficulty * 2)
             return
 
         self.log.debug('submit work to hathor', aux_pow=aux_pow)
-        asyncio.ensure_future(self.submit_to_hathor(job, aux_pow))
+        create_logged_task(self.log, self.submit_to_hathor(job, aux_pow))
 
         self.log.debug('submit work to parent', work=work)
-        asyncio.ensure_future(self.submit_to_parent(job, work))
+        create_logged_task(self.log, self.submit_to_parent(job, work))
 
     async def submit_to_hathor(self, job: SingleMinerJob, aux_pow: BitcoinAuxPow) -> None:
         """ Submit AuxPOW to Hathor stratum.
@@ -805,6 +809,7 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
             self.coordinator.update_hathor_submitted(job.hathor_height)
         if res:
             self.log.info('new Hathor block found!!!', hash=block.hash.hex())
+            self.blocks_found.append(('hathor', block.hash))
 
     async def submit_to_parent(self, job: SingleMinerJob, work: SingleMinerWork) -> None:
         if job.parent_chain is ParentChain.BITCOIN:
@@ -822,14 +827,19 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
         bitcoin_block_header = job.build_bitcoin_like_header(work)
         block_hash = Hash(bitcoin_block_header.hash)
         block_target = Target(int.from_bytes(bitcoin_block_header.bits, 'big'))
+        bitcoin_block = job.build_bitcoin_like_block(work)
+        data = bytes(bitcoin_block)
         if block_hash.to_u256() > block_target.to_u256():
             self.log.debug('high hash for Bitcoin, keep mining')
+            error = await bitcoin_rpc.verify_block_proposal(data)
+            if not error:
+                self.log.debug('block would have been accepted')
+            else:
+                self.log.warn('block would have been rejected', reason=error)
             return
         if self.coordinator.should_skip_parent_submit(job.parent_height, ParentChain.BITCOIN):
             self.log.debug('late winning share, skipping Bitcoin submit')
             return
-        bitcoin_block = job.build_bitcoin_like_block(work)
-        data = bytes(bitcoin_block)
         try:
             res = await bitcoin_rpc.submit_block(data)
         except Exception:
@@ -839,6 +849,7 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
         self.log.debug('bitcoin_rpc.submit_block', res=res)
         if res is None:
             self.log.info('new Bitcoin block found!!!', hash=bitcoin_block.header.hash.hex())
+            self.blocks_found.append(('bitcoin', bitcoin_block.header.hash))
             await self.coordinator.update_bitcoin_block()
         else:
             # Known reasons:
@@ -855,14 +866,19 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
         bitcoin_block_header = job.build_bitcoin_like_header(work)
         block_hash = Hash(bitcoin_block_header.hash)
         block_target = Target(int.from_bytes(bitcoin_block_header.bits, 'big'))
+        bitcoin_block = job.build_bitcoin_like_block(work)
+        data = bytes(bitcoin_block)
         if block_hash.to_u256() > block_target.to_u256():
             self.log.debug('high hash for DigiByte, keep mining')
+            error = await digibyte_rpc.verify_block_proposal(data)
+            if not error:
+                self.log.debug('block would have been accepted')
+            else:
+                self.log.warn('block would have been rejected', reason=error)
             return
         if self.coordinator.should_skip_parent_submit(job.parent_height, ParentChain.DIGIBYTE):
             self.log.debug('late winning share, skipping DigiByte submit')
             return
-        bitcoin_block = job.build_bitcoin_like_block(work)
-        data = bytes(bitcoin_block)
         try:
             res = await digibyte_rpc.submit_block(data)
         except Exception:
@@ -872,10 +888,11 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
         self.log.debug('digibyte_rpc.submit_block', res=res)
         if res is None:
             self.log.info('new DigiByte block found!!!', hash=bitcoin_block.header.hash.hex())
+            self.blocks_found.append(('digibyte', bitcoin_block.header.hash))
             await self.coordinator.update_bitcoin_block()
         else:
             # Known reasons:
-            # - high-hash: PoW not enough, shouldn't happen because we check the difficulty before sending
+            # - invalid (high-hash): PoW not enough, shouldn't happen because we check the difficulty before sending
             # - bad-*: invalid block data
             # - inconclusive-not-best-prevblk: DigiByte will drop submissions that don't have the current best prevblk
             #   (aka, parent or block tip), so in case the best prevblk changed before the miner could start the new
@@ -885,6 +902,8 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
     def set_difficulty(self, diff: float) -> None:
         """ Sends the difficulty to the connected client, applies for all future "mining.notify" until it is set again.
         """
+        if self.constant_difficulty:
+            return
         old_diff = int(self._current_difficulty)
         self._current_difficulty = PDiff(max(self.min_difficulty, diff))
         new_diff = int(self._current_difficulty)
@@ -895,12 +914,14 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
     def job_request(self) -> None:
         """ Sends a job request to the connected client.
         """
+        print('XXXX request job')
         if not self.coordinator.merged_job:
             self.send_error(NODE_SYNCING, data={'message': 'Not ready to give a job.'})
             return
 
         assert self.parent_chain is not None
         try:
+            print('XXXX make job')
             job = self.coordinator.merged_job[self.parent_chain].new_single_miner_job(self)
         except (ValueError, ScriptError) as e:
             # ScriptError might happen if try to use a mainnet address in the testnet or vice versa
@@ -909,11 +930,12 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
         else:
             self.jobs[job.job_id] = job
 
+            print('XXXX send job')
             self.send_request('mining.notify', job.to_stratum_params())
 
             # for debugging only:
             parent_block = job.build_bitcoin_like_header(job.dummy_work())
-            self.log.debug('job updated', parent_block=bytes(parent_block).hex(),
+            self.log.info('job sent', parent_block=bytes(parent_block).hex(),
                            merkle_root=parent_block.merkle_root.hex())
 
     async def estimator_loop(self) -> None:
@@ -924,12 +946,14 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
         if not self.coordinator.merged_job:
             # not ready yet, skip this run
             return
+        self.log.debug('estimate hashrate')
         now = time.time()
         # remove old entries
         self._submitted_work = [i for i in self._submitted_work if now - i[0] < self.ESTIMATOR_WINDOW_INTERVAL]
         # too little jobs, reduce difficulty
         if len(self._new_submitted_work) == 0 and len(self._submitted_work) == 0 and now - self.last_reduce > 60:
             self.last_reduce = now
+            self.log.debug('too few submissions, reduce difficulty')
             self.set_difficulty(self._current_difficulty / 2)
             return
         # add new entries
@@ -938,6 +962,7 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
         # otherwise, estimate the hashrate, and aim for a difficulty that approximates the target job time
         # window size
         if not self._submitted_work:
+            self.log.debug('not enough submissions for estimation, skip')
             return
         delta = now - min(t for (t, _, __) in self._submitted_work)
         # total logwork (considering the highest hash only)
@@ -945,6 +970,7 @@ class MergedMiningStratumProtocol(asyncio.Protocol):
         # calculate hashrate in TH/s
         self.hashrate_ths = 2**(logwork - log2(delta) - log2(1e12))
         target_diff = Weight(logwork - log2(delta) + log2(self.TARGET_JOB_TIME)).to_pdiff()
+        self.log.debug('estimated, update diff', hashrate_ths=self.hashrate_ths, diff=target_diff)
         self.set_difficulty(target_diff)
 
 
@@ -1166,7 +1192,7 @@ class ParentCoordJob(NamedTuple):
 class BitcoinCoordJob(ParentCoordJob):
     @classmethod
     def from_dict(cls, params: dict) -> 'BitcoinCoordJob':
-        return super().from_dict(params)
+        return cls(*ParentCoordJob.from_dict(params))
 
     def make_cbheight(self) -> bytes:
         import struct
@@ -1176,7 +1202,7 @@ class BitcoinCoordJob(ParentCoordJob):
 class DigibyteCoordJob(ParentCoordJob):
     @classmethod
     def from_dict(cls, params: dict) -> 'DigibyteCoordJob':
-        return super().from_dict(params)
+        return cls(*ParentCoordJob.from_dict(params))
 
     def make_cbheight(self) -> bytes:
         import struct
@@ -1410,21 +1436,20 @@ class MergedMiningCoordinator:
     async def start(self) -> None:
         """ Starts the coordinator and subscribes for new blocks on the both networks in order to update miner jobs.
         """
-        loop = asyncio.get_event_loop()
         self.started_at = time.time()
         if self.bitcoin_rpc is not None:
             if self._payback_address_bitcoin:
                 validation_result = await self.bitcoin_rpc.validate_address(self._payback_address_bitcoin)
                 self.log.debug('bitcoin.validateaddress response', res=validation_result)
                 self.payback_address_bitcoin = BitcoinLikeAddress.from_validation_result(validation_result)
-            self.update_bitcoin_block_task = loop.create_task(self.update_bitcoin_block())
+            self.update_bitcoin_block_task = create_logged_task(self.log, self.update_bitcoin_block())
         if self.digibyte_rpc is not None:
             if self._payback_address_digibyte:
                 validation_result = await self.digibyte_rpc.validate_address(self._payback_address_digibyte)
                 self.log.debug('digibyte.validateaddress response', res=validation_result)
                 self.payback_address_digibyte = BitcoinLikeAddress.from_validation_result(validation_result)
-            self.update_digibyte_block_task = loop.create_task(self.update_digibyte_block())
-        self.update_hathor_block_task = loop.create_task(self.update_hathor_block())
+            self.update_digibyte_block_task = create_logged_task(self.log, self.update_digibyte_block())
+        self.update_hathor_block_task = create_logged_task(self.log, self.update_hathor_block())
 
     async def stop(self) -> None:
         """ Stops the client, interrupting mining processes, stoping supervisor loop, and sending finished jobs.
@@ -1559,6 +1584,9 @@ class MergedMiningCoordinator:
                 self.hathor_mining = await self.hathor_client.mining()
                 backoff = 1
                 await self._update_hathor_block(self.hathor_mining)
+            except asyncio.CancelledError:
+                self.log.debug('close connection with Hathor')
+                break
             except aiohttp.ClientError:
                 self.log.warn('lost connection with Hathor', exc_info=True)
             else:
@@ -1652,8 +1680,19 @@ class MergedMiningCoordinator:
                 self.log.warn('bad merkle root', expected=merkle_root.hex(),
                               got=block_proposal.header.merkle_root.hex())
             # self.log.debug('verify block proposal', block=bytes(block_proposal).hex(), data=block_proposal)
-            error = await parent_rpc.verify_block_proposal(block=bytes(block_proposal))
-            if error is not None:
+            error = await parent_rpc.verify_block_proposal(bytes(block_proposal))
+            if error == 'inconclusive-not-best-prevblk':
+                self.log.warn('block template might already outdated, continue eitherway')
+                # # XXX: only DigiByte uses this error code
+                # if self.digibyte_rpc is not None:
+                #     self.update_digibyte_block_task.cancel()
+                #     try:
+                #         await self.update_digibyte_block_task
+                #     except asyncio.CancelledError:
+                #         pass
+                #     self.update_digibyte_block_task = create_logged_task(self.log, self.update_digibyte_block())
+                self.update_jobs()
+            elif error is not None:
                 self.log.warn('proposed block is invalid, skipping update', error=error)
             else:
                 self.next_merged_job[parent] = merged_job

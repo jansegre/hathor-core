@@ -126,6 +126,7 @@ class CliManager:
             capture_stdout = False
         else:
             capture_stdout = getattr(module, 'LOGGING_CAPTURE_STDOUT', False)
+        with_twisted = getattr(module, 'LOGGING_WITH_TWISTED', True)
 
         # Enable pudb to stop on an unhandled exception.
         pudb = '--pudb' in sys.argv
@@ -135,7 +136,7 @@ class CliManager:
             pudb.set_trace(paused=False)
             capture_stdout = False
 
-        setup_logging(debug, capture_stdout)
+        setup_logging(debug, capture_stdout, with_twisted)
         module.main()
 
 

@@ -9,23 +9,13 @@ def create_parser() -> ArgumentParser:
     return configargparse.ArgumentParser(auto_env_var_prefix='hathor_')
 
 
-def setup_logging(debug: bool = False, capture_stdout: bool = False, *, _test_logging: bool = False) -> None:
+def setup_logging(debug: bool = False, capture_stdout: bool = False, with_twisted: bool = True, *,
+                  _test_logging: bool = False) -> None:
     import logging
     import logging.config
 
     import colorama
     import structlog
-    import twisted
-    from twisted.logger import LogLevel
-
-    # Mappings to Python's logging module
-    twisted_to_logging_level = {
-        LogLevel.debug: logging.DEBUG,
-        LogLevel.info: logging.INFO,
-        LogLevel.warn: logging.WARNING,
-        LogLevel.error: logging.ERROR,
-        LogLevel.critical: logging.CRITICAL,
-    }
 
     # common timestamper for structlog loggers and foreign (stdlib and twisted) loggers
     timestamper = structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S")
@@ -190,26 +180,39 @@ def setup_logging(debug: bool = False, capture_stdout: bool = False, *, _test_lo
         cache_logger_on_first_use=True,
     )
 
-    twisted_logger = structlog.get_logger('twisted')
+    if with_twisted:
+        import twisted
+        from twisted.logger import LogLevel
 
-    def twisted_structlog_observer(event):
-        try:
-            level = twisted_to_logging_level.get(event.get('log_level'), logging.INFO)
-            kwargs = {}
-            msg = ''
-            if not msg and 'log_format' in event:
-                msg = event['log_format'].format(**event)
-            if not msg and 'format' in event:
-                msg = event['format'] % event
-            failure = event.get('log_failure')
-            if failure is not None:
-                kwargs['exc_info'] = (failure.type, failure.value, failure.getTracebackObject())
-            twisted_logger.log(level, msg, **kwargs)
-        except Exception as e:
-            print('error when logging event', e)
+        # Mappings to Python's logging module
+        twisted_to_logging_level = {
+            LogLevel.debug: logging.DEBUG,
+            LogLevel.info: logging.INFO,
+            LogLevel.warn: logging.WARNING,
+            LogLevel.error: logging.ERROR,
+            LogLevel.critical: logging.CRITICAL,
+        }
 
-    # start logging to std logger so structlog can catch it
-    twisted.python.log.startLoggingWithObserver(twisted_structlog_observer, setStdout=capture_stdout)
+        twisted_logger = structlog.get_logger('twisted')
+
+        def twisted_structlog_observer(event):
+            try:
+                level = twisted_to_logging_level.get(event.get('log_level'), logging.INFO)
+                kwargs = {}
+                msg = ''
+                if not msg and 'log_format' in event:
+                    msg = event['log_format'].format(**event)
+                if not msg and 'format' in event:
+                    msg = event['format'] % event
+                failure = event.get('log_failure')
+                if failure is not None:
+                    kwargs['exc_info'] = (failure.type, failure.value, failure.getTracebackObject())
+                twisted_logger.log(level, msg, **kwargs)
+            except Exception as e:
+                print('error when logging event', e)
+
+        # start logging to std logger so structlog can catch it
+        twisted.python.log.startLoggingWithObserver(twisted_structlog_observer, setStdout=capture_stdout)
 
     if _test_logging:
         logger = structlog.get_logger()

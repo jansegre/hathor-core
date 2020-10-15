@@ -14,7 +14,7 @@ class IBitcoinRPC(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def verify_block_proposal(self, *, block: bytes) -> Optional[str]:
+    async def verify_block_proposal(self, block: bytes) -> Optional[str]:
         """ Method for the [GetBlockTemplate call](https://developer.bitcoin.org/reference/rpc/getblocktemplate.html).
         """
         raise NotImplementedError
@@ -49,7 +49,7 @@ class BitcoinRPC(IBitcoinRPC, Jsonrpc):
         res = await self._rpc_request('getblocktemplate', data)
         return cast(Dict[str, Any], res)
 
-    async def verify_block_proposal(self, *, block: bytes) -> Optional[str]:
+    async def verify_block_proposal(self, block: bytes) -> Optional[str]:
         res = await self._rpc_request('getblocktemplate', {'mode': 'proposal', 'data': block.hex()})
         return cast(Optional[str], res)
 

@@ -1405,7 +1405,7 @@ class BitcoinRPCStub(IBitcoinRPC):
         await asyncio.sleep(self.response_delay)
         return stub
 
-    async def verify_block_proposal(self, *, block: bytes) -> Optional[str]:
+    async def verify_block_proposal(self, block: bytes) -> Optional[str]:
         return None
 
     async def submit_block(self, block: bytes) -> str:
