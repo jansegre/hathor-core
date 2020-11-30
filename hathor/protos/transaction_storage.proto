@@ -42,6 +42,7 @@ message GetResponse {
 message SaveRequest {
   BaseTransaction transaction = 1;
   bool only_metadata = 2;
+  bool add_to_indexes = 3;
 }
 
 message SaveResponse {

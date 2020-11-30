@@ -24,6 +24,7 @@ from hathor.transaction.storage import (
     TransactionSubprocessStorage,
 )
 from hathor.transaction.storage.exceptions import TransactionDoesNotExist
+from hathor.transaction.transaction_metadata import ValidationState
 from hathor.wallet import Wallet
 from tests.utils import (
     BURN_ADDRESS,
@@ -48,6 +49,8 @@ settings = HathorSettings()
 class _BaseTransactionStorageTest:
     class _TransactionStorageTest(unittest.TestCase):
         def setUp(self, tx_storage, reactor=None):
+            from hathor.manager import HathorManager
+
             if not reactor:
                 self.reactor = Clock()
             else:
@@ -62,7 +65,6 @@ class _BaseTransactionStorageTest:
             self.genesis_blocks = [tx for tx in self.genesis if tx.is_block]
             self.genesis_txs = [tx for tx in self.genesis if not tx.is_block]
 
-            from hathor.manager import HathorManager
             self.tmpdir = tempfile.mkdtemp()
             wallet = Wallet(directory=self.tmpdir)
             wallet.unlock(b'teste')
@@ -77,6 +79,7 @@ class _BaseTransactionStorageTest:
                                nonce=100781, storage=tx_storage)
             self.block.resolve()
             self.block.verify()
+            self.block.get_metadata().validation = ValidationState.FULL
 
             tx_parents = [tx.hash for tx in self.genesis_txs]
             tx_input = TxInput(
@@ -92,6 +95,7 @@ class _BaseTransactionStorageTest:
                 tokens=[bytes.fromhex('0023be91834c973d6a6ddd1a0ae411807b7c8ef2a015afb5177ee64b666ce602')],
                 parents=tx_parents, storage=tx_storage)
             self.tx.resolve()
+            self.tx.get_metadata().validation = ValidationState.FULL
 
             # Disable weakref to test the internal methods. Otherwise, most methods return objects from weakref.
             self.tx_storage._disable_weakref()
@@ -152,7 +156,7 @@ class _BaseTransactionStorageTest:
             self.assertEqual(set(tx_parents_hash), {self.genesis_txs[0].hash, self.genesis_txs[1].hash})
 
         def validate_save(self, obj):
-            self.tx_storage.save_transaction(obj)
+            self.tx_storage.save_transaction(obj, add_to_indexes=True)
 
             loaded_obj1 = self.tx_storage.get_transaction(obj.hash)
 
@@ -171,7 +175,7 @@ class _BaseTransactionStorageTest:
                 else:
                     self.assertTrue(obj.hash in self.tx_storage.tx_index.tips_index.tx_last_interval)
 
-            self.tx_storage._del_from_cache(obj)
+            self.tx_storage.del_from_indexes(obj)
 
             if self.tx_storage.with_index:
                 if obj.is_block:
@@ -179,7 +183,7 @@ class _BaseTransactionStorageTest:
                 else:
                     self.assertFalse(obj.hash in self.tx_storage.tx_index.tips_index.tx_last_interval)
 
-            self.tx_storage._add_to_cache(obj)
+            self.tx_storage.add_to_indexes(obj)
             if self.tx_storage.with_index:
                 if obj.is_block:
                     self.assertTrue(obj.hash in self.tx_storage.block_index.tips_index.tx_last_interval)
@@ -194,6 +198,7 @@ class _BaseTransactionStorageTest:
 
         def test_save_token_creation_tx(self):
             tx = create_tokens(self.manager, propagate=False)
+            tx.get_metadata().validation = ValidationState.FULL
             self.validate_save(tx)
 
         def _validate_not_in_index(self, tx, index):
