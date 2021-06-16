@@ -150,11 +150,12 @@ class TransactionRemoteStorage(TransactionStorage):
         self._remove_from_weakref(tx)
 
     @convert_grpc_exceptions
-    def save_transaction(self, tx: 'BaseTransaction', *, only_metadata: bool = False) -> None:
+    def save_transaction(self, tx: 'BaseTransaction', *, only_metadata: bool = False,
+                         add_to_indexes: bool = False) -> None:
         self._check_connection()
 
         tx_proto = tx.to_proto()
-        request = protos.SaveRequest(transaction=tx_proto, only_metadata=only_metadata)
+        request = protos.SaveRequest(transaction=tx_proto, only_metadata=only_metadata, add_to_indexes=add_to_indexes)
         result = self._stub.Save(request)  # noqa: F841
         assert result.saved
         self._save_to_weakref(tx)
@@ -195,7 +196,8 @@ class TransactionRemoteStorage(TransactionStorage):
     # TransactionStorageAsync interface implementation:
 
     @convert_grpc_exceptions
-    def save_transaction_deferred(self, tx: 'BaseTransaction', *, only_metadata: bool = False) -> None:
+    def save_transaction_deferred(self, tx: 'BaseTransaction', *, only_metadata: bool = False,
+                                  add_to_indexes: bool = False) -> None:
         # self._check_connection()
         raise NotImplementedError
 
@@ -521,14 +523,14 @@ class TransactionRemoteStorage(TransactionStorage):
         yield from self._call_list_request_generators({'order_by': protos.TOPOLOGICAL_ORDER})
 
     @convert_grpc_exceptions
-    def _add_to_cache(self, tx):
+    def add_to_indexes(self, tx):
         self._check_connection()
         tx_proto = tx.to_proto()
         request = protos.MarkAsRequest(transaction=tx_proto, mark_type=protos.FOR_CACHING, relax_assert=False)
         result = self._stub.MarkAs(request)  # noqa: F841
 
     @convert_grpc_exceptions
-    def _del_from_cache(self, tx: 'BaseTransaction', *, relax_assert: bool = False) -> None:
+    def del_from_indexes(self, tx: 'BaseTransaction', *, relax_assert: bool = False) -> None:
         self._check_connection()
         tx_proto = tx.to_proto()
         request = protos.MarkAsRequest(transaction=tx_proto, mark_type=protos.FOR_CACHING, remove_mark=True,
@@ -680,11 +682,12 @@ class TransactionStorageServicer(protos.TransactionStorageServicer):
 
         tx_proto = request.transaction
         only_metadata = request.only_metadata
+        add_to_indexes = request.add_to_indexes
 
         result = protos.SaveResponse(saved=False)
 
         tx = tx_or_block_from_proto(tx_proto, storage=self.storage)
-        self.storage.save_transaction(tx, only_metadata=only_metadata)
+        self.storage.save_transaction(tx, only_metadata=only_metadata, add_to_indexes=add_to_indexes)
         result.saved = True
 
         return result
@@ -734,9 +737,9 @@ class TransactionStorageServicer(protos.TransactionStorageServicer):
 
         if request.mark_type == protos.FOR_CACHING:
             if request.remove_mark:
-                self.storage._del_from_cache(tx, relax_assert=request.relax_assert)
+                self.storage.del_from_indexes(tx, relax_assert=request.relax_assert)
             else:
-                self.storage._add_to_cache(tx)
+                self.storage.add_to_indexes(tx)
         else:
             raise ValueError('invalid mark_type')
 

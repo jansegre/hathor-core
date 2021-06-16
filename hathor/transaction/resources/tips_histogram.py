@@ -14,15 +14,17 @@
 
 import json
 
+from structlog import get_logger
 from twisted.web import resource
 
 from hathor.api_util import parse_get_arguments, set_cors
-from hathor.cli.openapi_files.register import register_resource
 
 ARGS = ['begin', 'end']
 
+logger = get_logger()
 
-@register_resource
+
+# XXX: this resource is DEPRECATED and will be removed soon
 class TipsHistogramResource(resource.Resource):
     """ Implements a web server API to return the tips in a timestamp interval.
         Returns a list of timestamps and numbers of tips.
@@ -33,6 +35,7 @@ class TipsHistogramResource(resource.Resource):
 
     def __init__(self, manager):
         self.manager = manager
+        self.log = logger.new()
 
     def render_GET(self, request):
         """ Get request to /tips-histogram/ that return the number of tips between two timestamp
@@ -43,6 +46,7 @@ class TipsHistogramResource(resource.Resource):
 
             :rtype: string (json)
         """
+        self.log.warn('DEPRECATED: this resource doesn\'t work anymore and will be removed soon')
         request.setHeader(b'content-type', b'application/json; charset=utf-8')
         set_cors(request, 'GET')
 
@@ -74,76 +78,10 @@ class TipsHistogramResource(resource.Resource):
 
         v = []
         for timestamp in range(begin, end + 1):
-            tx_tips = self.manager.tx_storage.get_tx_tips(timestamp)
+            # tx_tips = self.manager.tx_storage.get_tx_tips(timestamp)
+            # XXX: this new histogram is definitely broken as it only considers the current mempool,
+            #      but it is now deprecated so it isn't a problem
+            tx_tips = self.manager.generate_parent_txs(timestamp).get_all_tips()
             v.append((timestamp, len(tx_tips)))
 
         return json.dumps({'success': True, 'tips': v}).encode('utf-8')
-
-
-TipsHistogramResource.openapi = {
-    '/tips-histogram': {
-        'x-visibility': 'private',
-        'get': {
-            'tags': ['transaction'],
-            'operationId': 'tips_histogram',
-            'summary': 'Histogram of tips',
-            'description': ('Returns a list of tuples (timestamp, quantity)'
-                            'for each timestamp in the requested interval'),
-            'parameters': [
-                {
-                    'name': 'begin',
-                    'in': 'query',
-                    'description': 'Beggining of the timestamp interval',
-                    'required': True,
-                    'schema': {
-                        'type': 'int'
-                    }
-                },
-                {
-                    'name': 'end',
-                    'in': 'query',
-                    'description': 'End of the timestamp interval',
-                    'required': True,
-                    'schema': {
-                        'type': 'int'
-                    }
-                }
-            ],
-            'responses': {
-                '200': {
-                    'description': 'Success',
-                    'content': {
-                        'application/json': {
-                            'examples': {
-                                'success': {
-                                    'summary': 'Success',
-                                    'value': [
-                                        [
-                                            1547163020,
-                                            1
-                                        ],
-                                        [
-                                            1547163021,
-                                            4
-                                        ],
-                                        [
-                                            1547163022,
-                                            2
-                                        ]
-                                    ]
-                                },
-                                'error': {
-                                    'summary': 'Invalid parameter',
-                                    'value': {
-                                        'success': False,
-                                        'message': 'Missing parameter: begin'
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}

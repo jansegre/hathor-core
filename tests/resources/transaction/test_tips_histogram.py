@@ -29,7 +29,7 @@ class TipsTest(_BaseResourceTest._ResourceTest):
         data1 = response1.json_value()
         self.assertTrue(data1['success'])
         self.assertEqual(len(data1['tips']), 1)
-        self.assertEqual([txs[0].timestamp, 1], data1['tips'][0])
+        self.assertEqual([txs[0].timestamp, 2], data1['tips'][0])
 
         response2 = yield self.web.get("tips-histogram", {
             b'begin': str(txs[0].timestamp).encode(),
@@ -38,8 +38,8 @@ class TipsTest(_BaseResourceTest._ResourceTest):
         data2 = response2.json_value()
         self.assertTrue(data2['success'])
         self.assertEqual(len(data2['tips']), 2)
-        self.assertEqual([txs[0].timestamp, 1], data2['tips'][0])
-        self.assertEqual([txs[0].timestamp + 1, 1], data2['tips'][1])
+        self.assertEqual([txs[0].timestamp, 2], data2['tips'][0])
+        self.assertEqual([txs[0].timestamp + 1, 3], data2['tips'][1])
 
         response3 = yield self.web.get("tips-histogram", {
             b'begin': str(txs[0].timestamp).encode(),

@@ -7,7 +7,6 @@ from hathor.simulator import FakeConnection
 from hathor.transaction.storage.exceptions import TransactionIsNotABlock
 from hathor.transaction.storage.remote_storage import RemoteCommunicationError, TransactionRemoteStorage
 from tests import unittest
-from tests.utils import start_remote_storage
 
 
 class HathorSyncMethodsTestCase(unittest.TestCase):
@@ -303,13 +302,13 @@ class HathorSyncMethodsTestCase(unittest.TestCase):
         self.assertEqual(len(downloader.downloading_deque), 0)
 
 
-class RemoteStorageSyncTest(HathorSyncMethodsTestCase):
-    def setUp(self):
-        super().setUp()
-        tx_storage, self._server = start_remote_storage()
-
-        self.manager1.tx_storage = tx_storage
-
-    def tearDown(self):
-        self._server.stop(0).wait()
-        super().tearDown()
+# class RemoteStorageSyncTest(HathorSyncMethodsTestCase):
+#     def setUp(self):
+#         super().setUp()
+#         tx_storage, self._server = start_remote_storage()
+#
+#         self.manager1.tx_storage = tx_storage
+#
+#     def tearDown(self):
+#         self._server.stop(0).wait()
+#         super().tearDown()

@@ -719,7 +719,7 @@ class NodeSyncTimestamp:
         key = 'get-data-{}'.format(hash_bytes.hex())
         return key
 
-    def remove_deferred(self, reason: 'Failure',  hash_bytes: bytes) -> None:
+    def remove_deferred(self, reason: 'Failure', hash_bytes: bytes) -> None:
         """ Remove the deferred from the deferred_by_key
             Used when a requested tx deferred fails for some reason (not found, or timeout)
         """
